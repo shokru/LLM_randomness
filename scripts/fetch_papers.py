@@ -2,7 +2,7 @@
 """
 Per-paper LLM-mention harvester, scoped by journal list (FT50 -> AJG tiers).
 
-Design goal: scope is CONFIG, not code. `journals.csv` lists each journal with its
+Design goal: scope is CONFIG, not code. `journals.xlsx` lists each journal with its
 AJG rank and an FT50 flag; you pick a --scope and the pipeline fetches only those
 journals' papers, matches the model + concept catalogue locally in title/abstract, and
 writes a per-paper dataset. Expanding the scope (FT50 -> AJG 4 -> 3 ...) only fetches the
@@ -22,7 +22,6 @@ Output (in ./data): a single workbook  llm_mentions_<scope>.xlsx  with sheets
 No CSV files are written.
 """
 import argparse
-import csv
 import json
 import os
 import re
@@ -36,7 +35,7 @@ import llm_market_share as M   # MODELS, YEARS, weight_class, MAILTO
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
-JOURNALS = os.path.join(HERE, "journals.csv")
+JOURNALS = os.path.join(HERE, "journals.xlsx")
 MAILTO = M.MAILTO
 SRC_API = "https://api.openalex.org/sources"
 WORKS_API = "https://api.openalex.org/works"
@@ -52,7 +51,8 @@ class QuotaBlocked(Exception):
 
 # ---------------------------------------------------------------- scope / journals
 def journals_in_scope(scope):
-    rows = list(csv.DictReader(open(JOURNALS)))
+    import pandas as pd
+    rows = pd.read_excel(JOURNALS, dtype=str).fillna("").to_dict("records")
     if scope.lower() == "ft50":
         keep = [r for r in rows if r.get("ft50", "").strip() == "1"]
     else:

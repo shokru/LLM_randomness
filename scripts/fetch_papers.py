@@ -34,8 +34,22 @@ import urllib.request
 import llm_market_share as M   # MODELS, YEARS, weight_class, MAILTO
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(HERE, "data")
-JOURNALS = os.path.join(HERE, "journals.xlsx")
+ROOT = os.path.dirname(HERE) if os.path.basename(HERE) == "scripts" else HERE
+
+
+def _find(fname):
+    """Locate a data file regardless of layout: flat (module beside the file), the public
+    repo layout (scripts/ + sibling data/), or relative to the working directory."""
+    for c in (os.path.join(HERE, fname), os.path.join(HERE, "data", fname),
+              os.path.join(ROOT, fname), os.path.join(ROOT, "data", fname),
+              os.path.join(os.getcwd(), fname), os.path.join(os.getcwd(), "data", fname)):
+        if os.path.exists(c):
+            return c
+    return os.path.join(ROOT, "data", fname)
+
+
+DATA = os.path.join(ROOT, "data")
+JOURNALS = _find("journals.xlsx")
 MAILTO = M.MAILTO
 SRC_API = "https://api.openalex.org/sources"
 WORKS_API = "https://api.openalex.org/works"
@@ -52,7 +66,7 @@ class QuotaBlocked(Exception):
 # ---------------------------------------------------------------- scope / journals
 def journals_in_scope(scope):
     import pandas as pd
-    rows = pd.read_excel(JOURNALS, dtype=str).fillna("").to_dict("records")
+    rows = pd.read_excel(_find("journals.xlsx"), dtype=str).fillna("").to_dict("records")
     if scope.lower() == "ft50":
         keep = [r for r in rows if r.get("ft50", "").strip() == "1"]
     else:
@@ -195,6 +209,7 @@ def fetch_workbook(scope, wb_path, sleep=0.2, start_date=None, end_date=None):
     (sheets papers/totals/sources/done). Resumable via the 'done' sheet; writes NO CSVs.
     Snapshot-saves every 3 journals via an atomic os.replace. Needs pandas + openpyxl."""
     import pandas as pd
+    wb_path = str(wb_path)
     start_date = start_date or START; end_date = end_date or END   # OpenAlex pub-date window
     illegal = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
     clean = lambda s: illegal.sub("", str(s))[:32000]

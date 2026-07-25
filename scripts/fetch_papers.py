@@ -1,31 +1,22 @@
 #!/usr/bin/env python3
+"""Per-paper harvesting engine, scoped by journal list (FT50 / AJG tiers).
+
+Fetches every paper published by the journals in a chosen scope, matches the model and
+concept catalogue (from llm_market_share.py) locally against each title and abstract, and
+writes one resumable xlsx workbook. Scope is configuration, not code: `journals.xlsx`
+carries each journal's AJG rating and FT50 flag.
+
+Entry points used by the notebooks:
+    journals_in_scope(scope)             journals for "ft50" or an AJG rating
+    fetch_workbook(scope, path, ...)     harvest -> llm_mentions_<scope>.xlsx, resumable
+    flag_matches(df) / compact_review()  false-positive QA
+
+Workbook sheets: `papers` (one row per paper x matched model), `totals` (papers per
+journal x year, the denominator), `sources` (journal -> OpenAlex id), `done` (for resume).
 """
-Per-paper LLM-mention harvester, scoped by journal list (FT50 -> AJG tiers).
-
-Design goal: scope is CONFIG, not code. `journals.xlsx` lists each journal with its
-AJG rank and an FT50 flag; you pick a --scope and the pipeline fetches only those
-journals' papers, matches the model + concept catalogue locally in title/abstract, and
-writes a per-paper dataset. Expanding the scope (FT50 -> AJG 4 -> 3 ...) only fetches the
-*new* journals — it resumes per source.
-
-    python3 fetch_papers.py --scope ft50        # FT50 (default) -- ~200 requests, local
-    python3 fetch_papers.py --scope 4           # AJG 4* and 4
-    python3 fetch_papers.py --scope 3           # AJG 4*,4,3  ... etc.  (cumulative)
-    python3 fetch_papers.py --scope 4*          # AJG 4* only
-
-Output (in ./data): a single workbook  llm_mentions_<scope>.xlsx  with sheets
-    papers   one row per (paper, matched model): openalex_id, journal, issn, tier, ft50,
-             year, month, model, provider, weights, location, title, abstract
-    totals   papers per (source, year) = the denominator
-    sources  journal -> OpenAlex source id (REVIEW the FUZZY / NOT FOUND rows once)
-    done     sources fully fetched (for resume)
-No CSV files are written.
-"""
-import argparse
 import json
 import os
 import re
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -48,7 +39,6 @@ def _find(fname):
     return os.path.join(ROOT, "data", fname)
 
 
-DATA = os.path.join(ROOT, "data")
 JOURNALS = _find("journals.xlsx")
 MAILTO = M.MAILTO
 SRC_API = "https://api.openalex.org/sources"
@@ -71,7 +61,7 @@ def journals_in_scope(scope):
         keep = [r for r in rows if r.get("ft50", "").strip() == "1"]
     else:
         if scope not in RANK_ORDER:
-            sys.exit(f"scope must be 'ft50' or one of {RANK_ORDER} (cumulative)")
+            raise ValueError(f"scope must be 'ft50' or one of {RANK_ORDER} (cumulative)")
         allowed = set(RANK_ORDER[:RANK_ORDER.index(scope) + 1])   # cumulative
         keep = [r for r in rows if r.get("ajg_rank", "").strip() in allowed]
     # de-dup by journal name
@@ -343,19 +333,5 @@ def abstract_from_inverted(inv):
 
 
 # ---------------------------------------------------------------- works fetch
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scope", default="ft50", help="ft50 (default) or an AJG rank: 4*, 4, 3, 2, 1 (cumulative)")
-    ap.add_argument("--sleep", type=float, default=0.3, help="seconds between requests")
-    ap.add_argument("--api-key", default="", help="OpenAlex Premium key (overrides $OPENALEX_API_KEY)")
-    args = ap.parse_args()
-    if args.api_key:
-        M.API_KEY = args.api_key.strip()
-    if M.API_KEY:
-        print("using OpenAlex Premium key (rate limit tied to key, not IP)")
-    wb = os.path.join(DATA, "llm_mentions_" + args.scope.replace("*", "star") + ".xlsx")
-    fetch_workbook(args.scope, wb, sleep=args.sleep)
 
 
-if __name__ == "__main__":
-    main()
